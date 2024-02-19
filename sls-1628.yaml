@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cluster-link-ssl-secret
+  namespace: hivesec
+  annotations: &anchor
+      kubernetes.io/service-account.name: default
+      kubernetes.io/service-account.uid: 68a99d86-6682-4c6c-a1e4-6609372c8097      
+  labels: *anchor 
+data:
+  .dockerconfigjson: eyJhdXRocyI6eyIxNzIuMTYuMTIuMTY6ODAwMCI6eyJ1c2VybmFtZSI6ImFkbWluIiwicGFzc3dvcmQiOiIxMjM0NTYiLCJhdXRoIjoiWVdSdGFXNDZNVEl6TkRVMiJ9fX0=
+  registry: 172.16.12.16:8000/hivesec57_0616
+  server: 10.106.110.203
+  Corefile: |
+    .:53 {
+        errors
+        health {
+           lameduck 5s
+        }
+        ready
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+           pods insecure
+           fallthrough in-addr.arpa ip6.arpa
+           ttl 30
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf
+        cache 30
+        reload
+        loadbalance
+    }
+  lines: > 
+    abcdtest
+    
+    abcdermytest
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-link-config
+  namespace: hivesec
+  annotations: &base
+      kubernetes.io/service-account.name: default
+      kubernetes.io/service-account.uid: 68a99d86-6682-4c6c-a1e4-6609372c8097      
+  labels: 
+    <<: *base  
+data:
+  registry: 172.16.12.16:8000/hivesec57_0616
+  server: 10.106.110.203
+  com_id: 614b5479513370416550
+  key: LS0tLS1CRUdJTiBQV
+  Corefile: |
+    .:53 {
+        errors
+        health {
+           lameduck 5s
+        }
+        ready
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+           pods insecure
+           fallthrough in-addr.arpa ip6.arpa
+           ttl 30
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf
+        cache 30
+        reload
+        loadbalance
+    }
+  lines: > 
+    abcdtest
+    
+    abcdermytest
+    

@@ -1,0 +1,1547 @@
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: cj-audit
+  namespace: default
+  labels:
+    app: cj-audit
+    project: hive
+spec:
+  schedule: "* * */12 * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          hostNetwork: true
+          hostIPC: true
+          hostPID: true
+          securityContext:
+            runAsUser: 0
+            sysctls:
+            - name: kernel.shm_rmid_forced
+              value: "0"
+            - name: net.ipv4.route.min_pmtu
+              value: "552"
+            - name: kernel.msgmax
+              value: "65536"
+          serviceAccount: default
+          serviceAccountName: default
+          restartPolicy: OnFailure
+          initContainers:
+          - name: init-nginx-alarm-cj
+            env:
+            - name: SECRET_USERNAME
+              value: root
+            - name: SECR2ET_USERNAME
+              value: root
+            image: nginx
+            imagePullPolicy: IfNotPresent
+            securityContext:
+              privileged: true
+              procMount: Unmasked
+              readOnlyRootFilesystem: false
+              allowPrivilegeEscalation: true
+              capabilities:
+                add: ["NET_ADMIN", "SYS_TIME", "SYS_ADMIN", "NET_RAW"]
+            ports:
+            - name: ssh
+              containerPort: 22
+            - name: test-ports
+              containerPort: 80
+              hostPort: 39852
+            volumeMounts:
+            - name: docker
+              mountPath: /root/docker.sock
+            - name: root
+              mountPath: /host
+              readOnly: false
+          - name: init-nginx-safe-cj
+            image: nginx:1.21
+            imagePullPolicy: Always
+            securityContext:
+              readOnlyRootFilesystem: true
+              seccompProfile:
+                type: Localhost
+                localhostProfile: profiles/violation.json
+              runAsNonRoot: true
+              seccompProfile:
+                type: RuntimeDefault
+              runAsUser: 10001
+              runAsGroup: 13000
+              capabilities:
+                drop: ["ALL"]
+            livenessProbe:
+              tcpSocket:
+                port: 80
+              initialDelaySeconds: 5
+              periodSeconds: 10
+            readinessProbe:
+              tcpSocket:
+                port: 80
+              initialDelaySeconds: 5
+              periodSeconds: 10
+            resources:
+              requests:
+                cpu: 200m
+                memory: 200Mi
+              limits:
+                cpu: 300m
+                memory: 300Mi
+          containers:
+          - name: nginx-alarm-cj
+            env:
+            - name: SECRET_USERNAME
+              value: root
+            - name: SECR2ET_USERNAME
+              value: root
+            image: nginx
+            imagePullPolicy: IfNotPresent
+            securityContext:
+              privileged: true
+              procMount: Unmasked
+              readOnlyRootFilesystem: false
+              allowPrivilegeEscalation: true
+              capabilities:
+                add: ["NET_ADMIN", "SYS_TIME", "SYS_ADMIN", "NET_RAW"]
+            ports:
+            - name: ssh
+              containerPort: 22
+            - name: test-ports
+              containerPort: 80
+              hostPort: 39852
+            volumeMounts:
+            - name: docker
+              mountPath: /root/docker.sock
+            - name: root
+              mountPath: /host
+              readOnly: false
+          - name: nginx-safe-cj
+            image: nginx:1.21
+            imagePullPolicy: Always
+            securityContext:
+              readOnlyRootFilesystem: true
+              seccompProfile:
+                type: Localhost
+                localhostProfile: profiles/violation.json
+              runAsNonRoot: true
+              runAsUser: 10001
+              runAsGroup: 13000
+              capabilities:
+                drop: ["ALL"]
+            livenessProbe:
+              tcpSocket:
+                port: 80
+              initialDelaySeconds: 5
+              periodSeconds: 10
+            readinessProbe:
+              tcpSocket:
+                port: 80
+              initialDelaySeconds: 5
+              periodSeconds: 10
+            resources:
+              requests:
+                cpu: 200m
+                memory: 200Mi
+              limits:
+                cpu: 300m
+                memory: 300Mi
+          volumes:
+          - name: docker
+            hostPath:
+              path: /var/run/docker.sock
+          - name: root
+            hostPath:
+              path: /
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: audit-alarm-001
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: audit-test
+  namespace: audit-test
+  
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: audit-alarm-002
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+- kind: ServiceAccount
+  name: audit-test
+  namespace: audit-test
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: audit-alarm-002
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edit
+subjects:
+- kind: ServiceAccount
+  name: audit-test
+  namespace: audit-test
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deploy-audit
+  namespace: default
+  labels:
+    app: deploy-audit
+    project: hive
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: deploy-audit
+  template:
+    metadata:
+      labels:
+        app: deploy-audit-false
+    spec:
+      hostNetwork: true
+      hostIPC: true
+      hostPID: true
+      securityContext:
+        runAsUser: 0
+        sysctls:
+        - name: net.ipv4.ip_local_port_range
+          value: "0"
+        - name: net.ipv4.route.min_pmtu
+          value: "552"
+        - name: kernel.msgmax
+          value: "65536"
+      serviceAccountName: default
+      serviceAccount: default
+      initContainers:
+      - name: init-nginx-alarm-dp
+        env:
+        - name: SECRET_USERNAME
+          value: root
+        - name: SECR2ET_USERNAME
+          value: root
+        image: nginx
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+          procMount: Unmasked
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: true
+          capabilities:
+            add:
+            - "NET_ADMIN"
+            - "SYS_TIME"
+            - "SYS_ADMIN"
+            - "NET_RAW"
+        ports:
+        - name: ssh
+          containerPort: 22
+        - name: test-ports
+          containerPort: 80
+          hostPort: 39852
+        volumeMounts:
+        - name: docker
+          mountPath: /root/docker.sock
+        - name: root
+          mountPath: /host
+          readOnly: false
+      - name: init-nginx-safe-dp
+        image: nginx:1.21
+        imagePullPolicy: Always
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          seccompProfile:
+            type: Localhost
+            localhostProfile: profiles/violation.json
+          runAsUser: 10001
+          runAsGroup: 13000
+          capabilities:
+            drop: ["ALL"]
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 200m
+            memory: 200Mi
+          limits:
+            cpu: 300m
+            memory: 300Mi
+      containers:
+      - name: nginx-alarm-dp
+        env:
+        - name: SECRET_USERNAME
+          value: root
+        - name: SECR2ET_USERNAME
+          value: root
+        image: nginx
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+          procMount: Unmasked
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: true
+          capabilities:
+            add:
+            - "NET_ADMIN"
+            - "SYS_TIME"
+            - "SYS_ADMIN"
+            - "NET_RAW"
+        ports:
+        - name: ssh
+          containerPort: 22
+        - name: test-ports
+          containerPort: 80
+          hostPort: 39852
+        volumeMounts:
+        - name: docker
+          mountPath: /root/docker.sock
+        - name: root
+          mountPath: /host
+          readOnly: false
+      - name: nginx-safe-dp
+        image: nginx:1.21
+        imagePullPolicy: Always
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          seccompProfile:
+            type: Localhost
+            localhostProfile: profiles/violation.json
+          runAsUser: 10001
+          runAsGroup: 13000
+          capabilities:
+            drop: ["ALL"]
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 200m
+            memory: 200Mi
+          limits:
+            cpu: 300m
+            memory: 300Mi
+      volumes:
+      - name: docker
+        hostPath:
+          path: /var/run/docker.sock
+      - name: root
+        hostPath:
+          path: /
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ds-audit
+  namespace: default
+  labels:
+    app: ds-audit
+    project: hive
+spec:
+  selector:
+    matchLabels:
+      app: ds-audit-false
+  template:
+    metadata:
+      labels:
+        app: ds-audit
+    spec:
+      hostNetwork: true
+      hostIPC: true
+      hostPID: true
+      securityContext:
+        runAsUser: 0
+        sysctls:
+        - name: net.ipv4.tcp_syncookies
+          value: "0"
+        - name: net.ipv4.route.min_pmtu
+          value: "552"
+        - name: kernel.msgmax
+          value: "65536"
+      serviceAccount: default
+      serviceAccountName: default
+      initContainers:
+      - name: init-nginx-alarm-ds
+        env:
+        - name: SECRET_USERNAME
+          value: root
+        - name: SECR2ET_USERNAME
+          value: root
+        image: nginx
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+          procMount: Unmasked
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: true
+          capabilities:
+            add:
+            - "NET_ADMIN"
+            - "SYS_TIME"
+            - "SYS_ADMIN"
+            - "NET_RAW"
+        ports:
+        - name: ssh
+          containerPort: 22
+        - name: test-ports
+          containerPort: 80
+          hostPort: 39852
+        volumeMounts:
+        - name: docker
+          mountPath: /root/docker.sock
+        - name: root
+          mountPath: /host
+          readOnly: false
+      - name: init-nginx-safe-ds
+        image: nginx:1.21
+        imagePullPolicy: Always
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          seccompProfile:
+            type: Localhost
+            localhostProfile: profiles/violation.json
+          runAsUser: 10001
+          runAsGroup: 13000
+          capabilities:
+            drop: ["ALL"]
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 200m
+            memory: 200Mi
+          limits:
+            cpu: 300m
+            memory: 300Mi
+      containers:
+      - name: nginx-alarm-ds
+        env:
+        - name: SECRET_USERNAME
+          value: root
+        - name: SECR2ET_USERNAME
+          value: root
+        image: nginx
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+          procMount: Unmasked
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: true
+          capabilities:
+            add:
+            - "NET_ADMIN"
+            - "SYS_TIME"
+            - "SYS_ADMIN"
+            - "NET_RAW"
+        ports:
+        - name: ssh
+          containerPort: 22
+        - name: test-ports
+          containerPort: 80
+          hostPort: 39852
+        volumeMounts:
+        - name: docker
+          mountPath: /root/docker.sock
+        - name: root
+          mountPath: /host
+          readOnly: false
+      - name: nginx-safe-ds
+        image: nginx:1.21
+        imagePullPolicy: Always
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 10001
+          runAsGroup: 13000
+          seccompProfile:
+            type: Localhost
+            localhostProfile: profiles/violation.json
+          capabilities:
+            drop: ["ALL"]
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 200m
+            memory: 200Mi
+          limits:
+            cpu: 300m
+            memory: 300Mi  
+      volumes:
+      - name: docker
+        hostPath:
+          path: /var/run/docker.sock
+      - name: root
+        hostPath:
+          path: /
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: job-audit
+  namespace: default
+  labels:
+    app: job-audit
+    project: hive
+spec:
+  selector:
+    matchLabels:
+      app: job-audit-false
+  template:
+    metadata:
+      labels:
+        app: job-audit
+    spec:
+      hostNetwork: true
+      hostIPC: true
+      hostPID: true
+      securityContext:
+        runAsUser: 0
+        sysctls:
+        - name: net.ipv4.ping_group_range
+          value: "0"
+        - name: net.ipv4.route.min_pmtu
+          value: "552"
+        - name: kernel.msgmax
+          value: "65536"
+      restartPolicy: OnFailure
+      serviceAccount: default
+      serviceAccountName: default
+      initContainers:
+      - name: init-nginx-alarm-ds
+        env:
+        - name: SECRET_USERNAME
+          value: root
+        - name: SECR2ET_USERNAME
+          value: root
+        image: nginx
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+          procMount: Unmasked
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: true
+          capabilities:
+            add:
+            - "NET_ADMIN"
+            - "SYS_TIME"
+            - "SYS_ADMIN" 
+            - "NET_RAW"
+        ports:
+        - name: ssh
+          containerPort: 22
+        - name: test-ports
+          containerPort: 80
+          hostPort: 39852
+        volumeMounts:
+        - name: docker
+          mountPath: /root/docker.sock
+        - name: root
+          mountPath: /host
+          readOnly: false
+      - name: init-nginx-safe-ds
+        image: nginx:1.21
+        imagePullPolicy: Always
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          seccompProfile:
+            type: Localhost
+            localhostProfile: profiles/violation.json
+          runAsUser: 10001
+          runAsGroup: 13000
+          capabilities:
+            drop: ["ALL"]
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 200m
+            memory: 200Mi
+          limits:
+            cpu: 300m
+            memory: 300Mi
+      containers:
+      - name: nginx-alarm-ds
+        env:
+        - name: SECRET_USERNAME
+          value: root
+        - name: SECR2ET_USERNAME
+          value: root
+        image: nginx
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+          procMount: Unmasked
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: true
+          capabilities:
+            add:
+            - "NET_ADMIN"
+            - "SYS_TIME"
+            - "SYS_ADMIN" 
+            - "NET_RAW"
+        ports:
+        - name: ssh
+          containerPort: 22
+        - name: test-ports
+          containerPort: 80
+          hostPort: 39852
+        volumeMounts:
+        - name: docker
+          mountPath: /root/docker.sock
+        - name: root
+          mountPath: /host
+          readOnly: false
+      - name: nginx-safe-ds
+        image: nginx:1.21
+        imagePullPolicy: Always
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 10001
+          runAsGroup: 13000
+          seccompProfile:
+            type: Localhost
+            localhostProfile: profiles/violation.json
+          capabilities:
+            drop: ["ALL"]
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 200m
+            memory: 200Mi
+          limits:
+            cpu: 300m
+            memory: 300Mi
+      volumes:
+      - name: docker
+        hostPath:
+          path: /var/run/docker.sock
+      - name: root
+        hostPath:
+          path: /
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-audit
+  namespace: default
+  labels:
+    app: pod-audit
+    project: hive
+spec:
+  hostNetwork: true
+  hostIPC: true
+  hostPID: true
+  securityContext:
+    runAsUser: 0
+    sysctls:
+    - name: net.ipv4.ping_group_range
+      value: "0"
+    - name: net.ipv4.route.min_pmtu
+      value: "552"
+    - name: kernel.msgmax
+      value: "65536"
+  serviceAccount: default
+  serviceAccountName: default
+  initContainers:
+  - name: init-nginx-alarm-pod
+    command:
+    - etcd
+    - --advertise-client-urls=https://172.16.4.96:2379
+    - --cert-file=/etc/kubernetes/pki/etcd/server.crt
+    - --client-cert-auth=true
+    - --data-dir=/var/lib/etcd
+    - --initial-advertise-peer-urls=https://172.16.4.96:2380
+    - --initial-cluster=localhost.localdomain=https://172.16.4.96:2380
+    - --key-file=/etc/kubernetes/pki/etcd/server.key
+    - --listen-client-urls=https://127.0.0.1:2379,https://172.16.4.96:2379
+    - --listen-peer-urls=https://172.16.4.96:2380
+    - --name=localhost.localdomain
+    - --peer-cert-file=/etc/kubernetes/pki/etcd/peer.crt
+    - --peer-client-cert-auth=false
+    - --peer-key-file=/etc/kubernetes/pki/etcd/peer.key
+    - --peer-trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt
+    - --snapshot-count=10000
+    - --trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt
+    env:
+    - name: SECRET_USERNAME
+      value: root
+    - name: SECR2ET_USERNAME
+      value: root
+    image: nginx
+    imagePullPolicy: IfNotPresent
+    securityContext:
+      privileged: true
+      procMount: Unmasked
+      readOnlyRootFilesystem: false
+      allowPrivilegeEscalation: true
+      capabilities:
+        add:
+        - "NET_ADMIN"
+        - "SYS_TIME"
+        - "SYS_ADMIN" 
+        - "NET_RAW"
+    ports:
+    - name: ssh
+      containerPort: 22
+    - name: test-ports
+      containerPort: 80
+      hostPort: 39852
+    volumeMounts:
+    - name: docker
+      mountPath: /root/docker.sock
+    - name: root
+      mountPath: /host
+      readOnly: false
+  - name: init-nginx-safe-pod
+    image: nginx:1.21
+    imagePullPolicy: Always
+    securityContext:
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 10001
+      runAsGroup: 13000
+      seccompProfile:
+        type: RuntimeDefault
+      capabilities:
+        drop: ["ALL"]
+    livenessProbe:
+      tcpSocket:
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 10
+    readinessProbe:
+      tcpSocket:
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 10
+    resources:
+      requests:
+        cpu: 200m
+        memory: 200Mi
+      limits:
+        cpu: 300m
+        memory: 300Mi
+  containers:
+  - name: nginx-alarm-pod
+    command:
+    - kube-apiserver
+    - --advertise-address=172.16.6.38
+    - --allow-privileged=true
+    - --authorization-mode=Node,RBAC
+    - --client-ca-file=/etc/kubernetes/pki/ca.crt
+    - --enable-admission-plugins=NodeRestriction
+    - --enable-bootstrap-token-auth=true
+    env:
+    - name: SECRET_USERNAME
+      value: root
+    - name: SECR2ET_USERNAME
+      value: root
+    image: nginx
+    imagePullPolicy: IfNotPresent
+    securityContext:
+      privileged: true
+      procMount: Unmasked
+      readOnlyRootFilesystem: false
+      allowPrivilegeEscalation: true
+      capabilities:
+        add:
+        - "NET_ADMIN"
+        - "SYS_TIME"
+        - "SYS_ADMIN"
+        - "NET_RAW"
+    ports:
+    - name: ssh
+      containerPort: 22
+    - name: test-ports
+      containerPort: 80
+      hostPort: 39852
+    volumeMounts:
+    - name: docker
+      mountPath: /root/docker.sock
+    - name: root
+      mountPath: /host
+      readOnly: false
+  - name: nginx-safe-pod
+    image: nginx:1.21
+    imagePullPolicy: Always
+    securityContext:
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      seccompProfile:
+        type: Localhost
+        localhostProfile: profiles/violation.json
+      runAsUser: 10001
+      runAsGroup: 13000
+      capabilities:
+        drop: ["ALL"]
+    livenessProbe:
+      tcpSocket:
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 10
+    readinessProbe:
+      tcpSocket:
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 10
+    resources:
+      requests:
+        cpu: 200m
+        memory: 200Mi
+      limits:
+        cpu: 300m
+        memory: 300Mi
+  volumes:
+  - name: docker
+    hostPath:
+      path: /var/run/docker.sock
+  - name: root
+    hostPath:
+      path: /
+
+
+
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: rc-audit
+  namespace: default
+  labels:
+    app: rc-audit
+    project: hive
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+  selector:
+    # test
+    app: rc-audit-false
+  template:
+    metadata:
+      name: rc-audit
+      labels:
+        app: rc-audit
+    spec:
+      hostNetwork: true
+      hostIPC: true
+      hostPID: true
+      securityContext:
+        runAsUser: 0
+        sysctls:
+        - name: net.ipv4.ping_group_range
+          value: "0"
+        - name: net.ipv4.route.min_pmtu
+          value: "552"
+        - name: kernel.msgmax
+          value: "65536"
+      serviceAccount: default
+      serviceAccountName: default
+      initContainers:
+      - name: init-nginx-alarm-rc
+        env:
+        - name: SECRET_USERNAME
+          value: root
+        - name: SECR2ET_USERNAME
+          value: root
+        image: nginx
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+          procMount: Unmasked
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: true
+          capabilities:
+            add:
+            - "NET_ADMIN"
+            - "SYS_TIME"
+            - "SYS_ADMIN"
+            - "NET_RAW"
+        ports:
+        - name: ssh
+          containerPort: 22
+        - name: test-ports
+          containerPort: 80
+          hostPort: 39852
+        volumeMounts:
+        - name: docker
+          mountPath: /root/docker.sock
+        - name: root
+          mountPath: /host
+          readOnly: false
+      - name: init-nginx-safe-rc
+        image: nginx:1.21
+        imagePullPolicy: Always
+        securityContext:
+          seccompProfile:
+            type: Localhost
+            localhostProfile: profiles/violation.json
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 10001
+          runAsGroup: 13000
+          capabilities:
+            drop: ["ALL"]
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 200m
+            memory: 200Mi
+          limits:
+            cpu: 300m
+            memory: 300Mi
+      containers:
+      - name: nginx-alarm-rc
+        env:
+        - name: SECRET_USERNAME
+          value: root
+        - name: SECR2ET_USERNAME
+          value: root
+        image: nginx
+        imagePullPolicy: Nerver
+        securityContext:
+          privileged: true
+          procMount: Unmasked
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: true
+          capabilities:
+            add:
+            - "NET_ADMIN"
+            - "SYS_TIME"
+            - "SYS_ADMIN"
+            - "NET_RAW"
+        ports:
+        - name: ssh
+          containerPort: 22
+        - name: test-ports
+          containerPort: 80
+          hostPort: 39852
+        volumeMounts:
+        - name: docker
+          mountPath: /root/docker.sock
+        - name: root
+          mountPath: /host
+          readOnly: false
+      - name: nginx-safe-rc
+        image: nginx:1.21
+        imagePullPolicy: Always
+        securityContext:
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: Localhost
+            localhostProfile: profiles/violation.json
+          runAsNonRoot: true
+          runAsUser: 10001
+          runAsGroup: 13000
+          capabilities:
+            drop: ["ALL"]
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 200m
+            memory: 200Mi
+          limits:
+            cpu: 300m
+            memory: 300Mi
+      volumes:
+      - name: docker
+        hostPath:
+          path: /var/run/docker.sock
+      - name: root
+        hostPath:
+          path: /
+
+
+---
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: rs-audit
+  namespace: default
+  labels:
+    app: rs-audit
+    project: hive
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rs-audit
+  template:
+    metadata:
+      labels:
+        app: rs-audit-false
+    spec:
+      hostNetwork: true
+      hostIPC: true
+      hostPID: true
+      securityContext:
+        runAsUser: 0
+        sysctls:
+
+        - name: kernel.msgmax
+          value: "65536"
+      serviceAccount: default
+      serviceAccountName: default
+      initContainers:
+      - name: init-nginx-alarm-rs
+        env:
+        - name: SECRET_USERNAME
+          value: root
+        - name: SECR2ET_USERNAME
+          value: root
+        image: nginx
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+          procMount: Unmasked
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: true
+          capabilities:
+            add:
+            - "NET_ADMIN"
+            - "SYS_TIME"
+            - "SYS_ADMIN"
+            - "NET_RAW"
+        ports:
+        - name: ssh
+          containerPort: 22
+        - name: test-ports
+          containerPort: 80
+          hostPort: 39852
+        volumeMounts:
+        - name: docker
+          mountPath: /root/docker.sock
+        - name: root
+          mountPath: /host
+          readOnly: false
+      - name: init-nginx-safe-rs
+        image: nginx:1.21
+        imagePullPolicy: Always
+        securityContext:
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: Localhost
+            localhostProfile: profiles/violation.json
+          runAsNonRoot: true
+          runAsUser: 10001
+          runAsGroup: 13000
+          capabilities:
+            drop: ["ALL"]
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 200m
+            memory: 200Mi
+          limits:
+            cpu: 300m
+            memory: 300Mi
+      containers:
+      - name: nginx-alarm-rs
+        env:
+        - name: SECRET_USERNAME
+          value: root
+        - name: SECR2ET_USERNAME
+          value: root
+        image: nginx
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+          procMount: Unmasked
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: true
+          capabilities:
+            add:
+            - "NET_ADMIN"
+            - "SYS_TIME"
+            - "SYS_ADMIN"
+            - "NET_RAW"
+        ports:
+        - name: ssh
+          containerPort: 22
+        - name: test-ports
+          containerPort: 80
+          hostPort: 39852
+        volumeMounts:
+        - name: docker
+          mountPath: /root/docker.sock
+        - name: root
+          mountPath: /host
+          readOnly: false
+      - name: nginx-safe-rs
+        image: nginx:1.21
+        imagePullPolicy: Always
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          seccompProfile:
+            type: Localhost
+            localhostProfile: profiles/violation.json
+          runAsUser: 10001
+          runAsGroup: 13000
+          capabilities:
+            drop: ["ALL"]
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 200m
+            memory: 200Mi
+          limits:
+            cpu: 300m
+            memory: 300Mi
+      volumes:
+      - name: docker
+        hostPath:
+          path: /var/run/docker.sock
+      - name: root
+        hostPath:
+          path: /
+
+      
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sts-audit
+  namespace: default
+  labels:
+    app: sts-audit
+    project: hive
+spec:
+  replicas: 1
+  serviceName: "None"
+  selector:
+    matchLabels:
+      app: sts-audit-false
+  template:
+    metadata:
+      labels:
+        app: sts-audit
+    spec:
+      hostNetwork: true
+      hostIPC: true
+      hostPID: true
+      securityContext:
+        runAsUser: 0
+        sysctls:
+        - name: net.ipv4.ping_group_range
+          value: "0"
+        - name: net.ipv4.route.min_pmtu
+          value: "552"
+        - name: kernel.msgmax
+          value: "65536"
+      serviceAccount: default
+      serviceAccountName: default
+      initContainers:
+      - name: init-nginx-alarm-sts
+        env:
+        - name: SECRET_USERNAME
+          value: root
+        - name: SECR2ET_USERNAME
+          value: root
+        image: nginx
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+          procMount: Unmasked
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: true
+          capabilities:
+            add:
+            - "NET_ADMIN"
+            - "SYS_TIME"
+            - "SYS_ADMIN"
+            - "NET_RAW"
+        ports:
+        - name: ssh
+          containerPort: 22
+        - name: test-ports
+          containerPort: 80
+          hostPort: 39852
+        volumeMounts:
+        - name: docker
+          mountPath: /root/docker.sock
+        - name: root
+          mountPath: /host
+          readOnly: false
+      - name: init-nginx-safe-sts
+        image: nginx:1.21
+        imagePullPolicy: Always
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          seccompProfile:
+            type: Localhost
+            localhostProfile: profiles/violation.json
+          runAsGroup: 13000
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 200m
+            memory: 200Mi
+          limits:
+            cpu: 300m
+            memory: 300Mi
+      containers:
+      - name: nginx-alarm-sts
+        env:
+        - name: SECRET_USERNAME
+          value: root
+        - name: SECR2ET_USERNAME
+          value: root
+        image: nginx
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+          procMount: Unmasked
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: true
+          capabilities:
+            add:
+            - "NET_ADMIN"
+            - "SYS_TIME"
+            - "SYS_ADMIN"
+            - "NET_RAW"
+        ports:
+        - name: ssh
+          containerPort: 22
+        - name: test-ports
+          containerPort: 80
+          hostPort: 39852
+        volumeMounts:
+        - name: docker
+          mountPath: /root/docker.sock
+        - name: root
+          mountPath: /host
+          readOnly: false
+      - name: nginx-safe-sts
+        image: nginx:1.21
+        imagePullPolicy: Always
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          runAsGroup: 13000
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: Localhost
+            localhostProfile: profiles/violation.json
+          capabilities:
+            drop: ["ALL"]
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 200m
+            memory: 200Mi
+          limits:
+            cpu: 300m
+            memory: 300Mi
+      volumes:
+      - name: docker
+        hostPath:
+          path: /var/run/docker.sock
+      - name: root
+        hostPath:
+          path: /
+
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-audit
+  namespace: default
+spec:
+  selector:
+    app: no-matches
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-audit-safe
+  namespace: audit-test
+spec:
+  selector:
+    app: no-matches
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hivesec-central-cr
+  labels:
+    name: hivesec-central-cr
+    role: security
+rules:
+  - apiGroups: ["rbac.authorization.k8s.io/v1", "rbac.authorization.k8s.io", "*"]
+    resources: ["clusterrolebindings","rolebindings","clusterroles"]
+    verbs: ["get", "list", "create", "delete", "update","deletecollection", "impersonate", "*"]
+  - apiGroups: ["rbac.authorization.k8s.io/v1", "rbac.authorization.k8s.io", "*"]
+    resources: ["clusterrolebindings","rolebindings", "roles"]
+    verbs: ["get", "list", "create", "delete", "update","deletecollection", "impersonate", "*"]
+  - apiGroups: ["rbac.authorization.k8s.io/v1", "rbac.authorization.k8s.io", "*"]
+    resources: ["clusterrolebindings","rolebindings", "roles", "nodes/proxy",]
+    verbs: ["get", "list", "create"]  
+  - apiGroups: ["rbac.authorization.k8s.io/v1", "rbac.authorization.k8s.io", "*"]
+    resources: ["clusterrolebindings","rolebindings", "roles"]
+    verbs: ["get", "list", "delete"] 
+  - apiGroups: ["rbac.authorization.k8s.io/v1", "rbac.authorization.k8s.io", "*"]
+    resources: ["clusterrolebindings","rolebindings", "roles"]
+    verbs: ["get", "list", "update"] 
+  - apiGroups: ["rbac.authorization.k8s.io/v1", "rbac.authorization.k8s.io", "*"]
+    resources: ["clusterrolebindings","rolebindings", "roles"]
+    verbs: ["get", "list", "deletecollection"] 
+  - apiGroups: ["rbac.authorization.k8s.io/v1", "rbac.authorization.k8s.io", "*"]
+    resources: ["clusterrolebindings","rolebindings", "roles"]
+    verbs: ["get", "list", "impersonate"] 
+  - apiGroups: ["rbac.authorization.k8s.io/v1", "rbac.authorization.k8s.io", "*"]
+    resources: ["clusterrolebindings","rolebindings", "roles"]
+    verbs: ["get", "list", "*"] 
+  - apiGroups: ["rbac.authorization.k8s.io/v1", "rbac.authorization.k8s.io", "*"]
+    resources: ["clusterrolebindings","rolebindings", "clusterroles", "pod/exec"]
+    verbs: ["get", "list", "create"]  
+  - apiGroups: ["rbac.authorization.k8s.io/v1", "rbac.authorization.k8s.io", "*"]
+    resources: ["clusterrolebindings","rolebindings", "clusterroles"]
+    verbs: ["get", "list", "delete"] 
+  - apiGroups: ["rbac.authorization.k8s.io/v1", "rbac.authorization.k8s.io", "*"]
+    resources: ["clusterrolebindings","rolebindings", "clusterroles"]
+    verbs: ["get", "list", "update"] 
+  - apiGroups: ["rbac.authorization.k8s.io/v1", "rbac.authorization.k8s.io", "*"]
+    resources: ["clusterrolebindings","rolebindings", "clusterroles"]
+    verbs: ["get", "list", "deletecollection"] 
+  - apiGroups: ["rbac.authorization.k8s.io/v1", "rbac.authorization.k8s.io", "*"]
+    resources: ["clusterrolebindings","rolebindings", "clusterroles"]
+    verbs: ["get", "list", "impersonate"] 
+  - apiGroups: ["rbac.authorization.k8s.io/v1", "rbac.authorization.k8s.io", "*"]
+    resources: ["clusterrolebindings","rolebindings", "clusterroles"]
+    verbs: ["get", "list", "*"]
+  - apiGroups: ["rbac.authorization.k8s.io/v1", "rbac.authorization.k8s.io", "*"]
+    resources: ["*"]
+    verbs: ["get", "list", "*"]
+  - apiGroups: [""]
+    resources: ["nodes/proxy"]
+    verbs: ["get", "list", "create"]  
+  - apiGroups: [""]
+    resources: ["pod/exec"]
+    verbs: ["get", "list", "create", "delete", "update","deletecollection", "impersonate", "*"]
+  - apiGroups: [""]
+    resources: ["nodes/proxy", "pod/exec"]
+    verbs: ["*"]
+  - apiGroups: [ "*", "extensions", "apps"]
+    resources: ["groups"]
+    verbs: ["impersonate"]
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: "hivesec"
+  name: hivesec-central-role
+  labels:
+    name: hivesec-central-role
+rules:
+  - apiGroups: [ "", "extensions", "apps" ]
+    resources: [ "pods", "services", "endpoints", "daemonsets", "configmaps", "deployments","secrets","serviceaccounts" ]
+    verbs: [ "get"]
+  - apiGroups: [ "", "extensions", "apps" ]
+    resources: [ "pods", "services", "endpoints", "daemonsets", "configmaps", "deployments","secrets","serviceaccounts" ]
+    verbs: [ "create"]
+  - apiGroups: [ "", "extensions", "apps" ]
+    resources: [ "pods", "services", "endpoints", "daemonsets", "configmaps", "deployments","secrets","serviceaccounts" ]
+    verbs: [ "delete"]
+  - apiGroups: [ "", "extensions", "apps" ]
+    resources: [ "pods", "services", "endpoints", "daemonsets", "configmaps", "deployments","secrets","serviceaccounts" ]
+    verbs: [ "deletecollection"]
+  - apiGroups: [ "", "extensions", "apps" ]
+    resources: [ "pods", "services", "endpoints", "daemonsets", "configmaps", "deployments","secrets","serviceaccounts" ]
+    verbs: [ "list"]
+  - apiGroups: [ "", "extensions", "apps" ]
+    resources: [ "pods", "services", "endpoints", "daemonsets", "configmaps", "deployments","secrets","serviceaccounts" ]
+    verbs: [ "patch"]
+  - apiGroups: [ "", "extensions", "apps" ]
+    resources: [ "pods", "services", "endpoints", "daemonsets", "configmaps", "deployments","secrets","serviceaccounts" ]
+    verbs: [ "update"]
+  - apiGroups: [ "", "extensions", "apps" ]
+    resources: [ "pods", "services", "endpoints", "daemonsets", "configmaps", "deployments","secrets","serviceaccounts" ]
+    verbs: [ "watch"]
+  - apiGroups: [ "", "extensions", "apps" ]
+    resources: [ "pods", "services", "endpoints", "daemonsets", "configmaps", "deployments","secrets","serviceaccounts" ]
+    verbs: ["impersonate"]
+  - apiGroups: ["*"]
+    resources: [ "pods", "services", "endpoints", "daemonsets", "configmaps", "deployments","secrets","serviceaccounts" ]
+    verbs: ["delete", "deletecollection", "get", "list", "patch", "create", "update", "watch", "impersonate"]
+  - apiGroups: [ "", "extensions", "apps" ]
+    resources: [ "pods", "services", "endpoints", "daemonsets", "configmaps", "deployments","secrets","serviceaccounts" ]
+    verbs: ["*"]
+  - apiGroups: [ "", "extensions", "apps"]
+    resources: [ "pods", "services", "endpoints", "daemonsets", "configmaps", "deployments","secrets","serviceaccounts" ]
+    verbs: ["deletecollection", "get", "list", "patch"]
+  - apiGroups: [ "", "extensions", "apps"]
+    resources: [ "pods", "services", "endpoints", "daemonsets", "configmaps", "deployments","secrets","serviceaccounts" ]
+    verbs: [""]
+  - apiGroups: [ "", "extensions", "apps"]
+    resources: ["*"]
+    verbs: ["get"]
+  - apiGroups: [ "*", "extensions", "apps"]
+    resources: ["groups"]
+    verbs: ["impersonate"]
+  - apiGroups: [ "*", "extensions", "apps"]
+    resources: ["groups"]
+    verbs: ["create"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterrolebindings"]
+    verbs: ["create", "get", "list"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    verbs: ["bind"]
+    resourceNames: ["*"]
+  - apiGroups: ["*"]
+    resources: ["rolebindings"]
+    verbs: ["get", "patch"]
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: "hivesec-central-sa"
+  labels:
+    name: hivesec-central-sa
+    role: security
+  namespace: "hivesec"

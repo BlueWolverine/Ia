@@ -1,0 +1,94 @@
+FROM centos:latest as basebuild
+
+RUN echo 'we are running some # of cool things'
+
+RUN /bin/bash -c 'source $HOME/.bashrc && \
+    echo $HOME'
+#SLS-1559
+RUN /bin/bash -c 'source $HOME/.bashrc && echo $HOME'
+#SLS-1559
+RUN ["/bin/bash", "-c", "echo hello"]
+#SLS-1559
+RUN --mount=type=cache,target=/root/.cache/go-build \
+  go build 
+#SLS-1559  
+RUN rm -f /etc/apt/apt.conf.d/docker-clean; echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,target=/var/lib/apt,sharing=locked \
+  apt update && apt-get --no-install-recommends install -y gcc
+#SLS-1559
+RUN --mount=type=secret,id=aws,target=/root/.aws/credentials \
+  aws s3 cp s3://
+
+RUN --mount=type=ssh \
+  ssh -q -T git@gitlab.com 2>&1 | tee /hello
+#SLS-1559
+RUN --network=none pip install --find-links wheels mypackage
+#SLS-1559
+
+#RUN --security=insecure cat /proc/self/status | grep CapEff
+#RUN --security=sandbox cat /proc/self/status | grep CapEff
+
+ARG VERSION
+RUN echo $VERSION > image_version
+
+FROM centos:latest 
+
+COPY hom* /mydir/
+COPY hom?.txt /mydir/
+COPY test.txt relativeDir/
+COPY test.txt /absoluteDir/
+COPY arr[[]0].txt /mydir/
+COPY --chown=55:mygroup files* /somedir/
+# SLS-1576
+COPY --chown=bin files* /somedir/
+# SLS-1576
+COPY --chown=1 files* /somedir/
+# SLS-1576
+COPY --chown=10:11 files* /somedir/
+# SLS-1576
+COPY --chown=newuser:newuser --chmod=644 files* /somedir/
+# SLS-1576
+# SLS-1560
+COPY --link /foo /bar
+# SLS-1560
+# SLS-1576
+COPY /foo /bar
+COPY --from=basebuild /test /test01
+# SLS-1576
+
+
+USER newuser002
+USER newuser
+#sls-1563
+USER newuser:newuser
+USER 5000
+USER 5000:5000
+#sls-1563
+ARG username=newuser
+USER $username 
+#sls-1563
+
+WORKDIR /path/to/workdir
+#SLS-1564
+WORKDIR /a
+WORKDIR b
+WORKDIR home
+#SLS-1564
+ENV DIRPATH=/path
+WORKDIR $DIRPATH/$DIRNAME
+
+HEALTHCHECK --interval=5m --timeout=3s \
+  CMD curl -f http://localhost/ || exit 1
+HEALTHCHECK --interval=5m --timeout=3s CMD ls -l /home
+#sls-1393
+healthcheck CMD curl -f http://localhost/ || exit 1
+#sls-1393
+#HEALTHCHECK --timeout=3s --start-period=3s --start-interval=30s --retries=65 CMD curl -fs http://localhost/ || exit 1
+
+
+MAINTAINER "SvenDowideit@home.org.au"
+# SLS-1566
+maintainer "SvenDowideit@homeewdsddd
+# SLS-1566
+MAINTAINER "SvenDowideit@"
